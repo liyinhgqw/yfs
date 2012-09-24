@@ -23,7 +23,7 @@ class extent_server {
   int remove(extent_protocol::extentid_t id, int &);
   bool is_inode_exist(extent_protocol::extentid_t id);
 
- private:
+// private:
   std::map<extent_protocol::extentid_t, inode> inode_dir_;
   pthread_mutex_t m_;
 };

@@ -8,6 +8,7 @@
 
 #include <fuse_lowlevel.h>
 #include <stdio.h>
+#include <sstream>
 #include <stdlib.h>
 #include <strings.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 #include <arpa/inet.h>
 #include "lang/verify.h"
 #include "yfs_client.h"
+
 
 int myid;
 yfs_client *yfs;
@@ -126,9 +128,29 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
     struct stat st;
     // You fill this in for Lab 2
-#if 0
+#if 1
     // Change the above line to "#if 1", and your code goes here
     // Note: fill st using getattr before fuse_reply_attr
+    yfs_client::inum inum = ino;
+    yfs_client::status ret;
+    std::string content_buf;
+
+    ret = yfs->getcontent(inum, content_buf);
+    if(ret != yfs_client::OK){
+      fuse_reply_err(req, ENOENT);
+      return;
+    }
+
+    size_t new_size, cur_size;
+    new_size = attr->st_size;
+    cur_size = content_buf.size();
+    if (new_size >= cur_size) {
+      content_buf.append(new_size - cur_size, '\0');
+    } else {
+      content_buf = content_buf.substr(0, new_size);
+    }
+    yfs->putcontent(inum, content_buf);
+    getattr(inum, st);
     fuse_reply_attr(req, &st, 0);
 #else
     fuse_reply_err(req, ENOSYS);
@@ -155,10 +177,21 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                 off_t off, struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 0
+#if 1
   std::string buf;
   // Change the above "#if 0" to "#if 1", and your code goes here
-  fuse_reply_buf(req, buf.data(), buf.size());
+  yfs_client::inum inum = ino;
+  yfs_client::status ret;
+
+  ret = yfs->getcontent(inum, buf);
+  printf("read content_buf: %s\n", buf.c_str());
+  if(ret != yfs_client::OK){
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+
+  buf = buf.substr(off, size);
+  fuse_reply_buf(req, buf.c_str(), buf.size());
 #else
   fuse_reply_err(req, ENOSYS);
 #endif
@@ -185,8 +218,36 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
                  struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 0
+#if 1
   // Change the above line to "#if 1", and your code goes here
+  yfs_client::inum inum = ino;
+  yfs_client::status ret;
+  std::string content_buf;
+  std::string write_buf = std::string(buf);
+
+  ret = yfs->getcontent(inum, content_buf);
+  if(ret != yfs_client::OK){
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+
+  if (write_buf.size() >= size) {
+    write_buf = write_buf.substr(0, size);
+  } else {
+    write_buf.append(size - write_buf.size(), '\0');
+  }
+
+  if (content_buf.size() <= off) {
+    content_buf.append(off - content_buf.size(), '\0');
+    content_buf.append(write_buf);
+  } else if (content_buf.size() <= off + size) {
+    content_buf = content_buf.substr(0, off);
+    content_buf.append(write_buf);
+  } else {
+    content_buf.replace(off, size, write_buf);
+  }
+  yfs->putcontent(inum, content_buf);
+
   fuse_reply_write(req, size);
 #else
   fuse_reply_err(req, ENOSYS);
@@ -220,6 +281,32 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   e->entry_timeout = 0.0;
   e->generation = 0;
   // You fill this in for Lab 2
+  yfs_client::inum parent_inum = parent;
+  if (yfs->isdir(parent_inum)) {
+    std::string buf;
+    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+      std::string name_str = std::string(name);
+      if (buf.find(name_str + "=") != std::string::npos) {
+        printf("file %s exists. \n", name);
+        return yfs_client::EXIST;
+      }
+
+      yfs_client::inum inum = yfs->get_inum(yfs_client::FILE);
+      buf.append(name_str);
+      buf.append("=");
+      buf.append(yfs_client::filename(inum));
+      buf.append(";");
+
+      yfs->putcontent(inum, "");
+      yfs->putcontent(parent_inum, buf);
+
+      e->ino = inum;
+      getattr(inum, e->attr);
+
+      return yfs_client::OK;
+    }
+  }
+
   return yfs_client::NOENT;
 }
 
@@ -270,7 +357,30 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   e.generation = 0;
   bool found = false;
 
+  std::cout << "... lookup ... [parent:]" << parent << ", [name:]" << name << std::endl;
   // You fill this in for Lab 2
+  yfs_client::inum parent_inum = parent;
+  if (yfs->isdir(parent_inum)) {
+    std::string buf;
+    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+      std::string name_str = std::string(name);
+      size_t pos = buf.find(name_str + "=");
+      if (pos != std::string::npos) {
+        found = true;
+        std::string temp = buf.substr(pos);
+        std::cout << " temp: " << temp << std::endl;
+        size_t start_pos = temp.find_first_of('=');
+        size_t end_pos = temp.find_first_of(";");
+        std::string inum_str = temp.substr(start_pos + 1, end_pos - start_pos - 1);
+        std::cout << "inum_str" << inum_str << std::endl;
+        yfs_client::inum inum = yfs_client::n2i(inum_str);
+        e.ino = inum;
+        std::cout << "--- lookup ... [inum:]" << inum << std::endl;
+        getattr(inum, e.attr);
+      }
+    }
+  }
+
   if (found)
     fuse_reply_entry(req, &e);
   else
@@ -332,7 +442,24 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
 
   // You fill this in for Lab 2
+  std::string buf;
+  yfs->getcontent(inum, buf);
+  std::stringstream ss(buf);
+  std::vector<std::string> inode_list;
 
+  std::string inode_buf;
+  while (std::getline(ss, inode_buf, ';')) {
+    inode_list.push_back(inode_buf);
+  }
+  size_t pos;
+  std::string inode_name;
+  yfs_client::inum inode_inum;
+  for (int i = 0; i < inode_list.size(); i++) {
+    pos = inode_list[i].find("=");
+    inode_name = inode_list[i].substr(0, pos);
+    inode_inum = yfs_client::n2i(inode_list[i].substr(pos + 1));
+    dirbuf_add(&b, inode_name.c_str(), inode_inum);
+  }
 
   reply_buf_limited(req, b.p, b.size, off, size);
   free(b.p);

@@ -8,28 +8,30 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-extent_server::extent_server() {}
+extent_server::extent_server() {
+  pthread_mutex_init(&m_, NULL);
+  int r;
+  int ret = put(0x00000001, "", r);
+  printf("** put root !\n");
+  assert (ret == extent_protocol::OK);
+}
 
-
-int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
-{
+int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &) {
   // You fill this in for Lab 2.
   ScopedLock m1(&m_);
+  inode_dir_[id].content = buf;
+  time_t now = time(NULL);
+  extent_protocol::attr &_attr = inode_dir_[id].att;
+  _attr.atime = now;
+  _attr.ctime = now;
+  _attr.mtime = now;
+  _attr.size = buf.size();
+  return extent_protocol::OK;
 
-  if (is_inode_exist(id)) {
-    inode_dir_[id].content = buf;
-    time_t now = time(NULL);
-    extent_protocol::attr _attr = inode_dir_[id].att;
-    _attr.atime = now;
-    _attr.ctime = now;
-    _attr.mtime = now;
-    return extent_protocol::OK;
-  }
   return extent_protocol::NOENT;
 }
 
-int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
-{
+int extent_server::get(extent_protocol::extentid_t id, std::string &buf) {
   // You fill this in for Lab 2.
   ScopedLock m1(&m_);
 
@@ -42,8 +44,8 @@ int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
   return extent_protocol::NOENT;
 }
 
-int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr &a)
-{
+int extent_server::getattr(extent_protocol::extentid_t id,
+                           extent_protocol::attr &a) {
   // You fill this in for Lab 2.
   // You replace this with a real implementation. We send a phony response
   // for now because it's difficult to get FUSE to do anything (including
@@ -61,8 +63,7 @@ int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr
   return extent_protocol::NOENT;
 }
 
-int extent_server::remove(extent_protocol::extentid_t id, int &)
-{
+int extent_server::remove(extent_protocol::extentid_t id, int &) {
   // You fill this in for Lab 2.
   ScopedLock m1(&m_);
 
@@ -74,10 +75,9 @@ int extent_server::remove(extent_protocol::extentid_t id, int &)
 }
 
 bool extent_server::is_inode_exist(extent_protocol::extentid_t id) {
-  ScopedLock m1(&m_);
 
   if (inode_dir_.find(id) != inode_dir_.end())
-      return true;
+    return true;
   return false;
 }
 
