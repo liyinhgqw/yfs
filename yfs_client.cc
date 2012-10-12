@@ -132,3 +132,17 @@ yfs_client::putcontent(inum inum, std::string content)
   return r;
 }
 
+int
+yfs_client::remove(inum inum)
+{
+  int r = OK;
+
+  printf("remove %016llx\n", inum);
+  if (ec->remove(inum) != extent_protocol::OK) {
+    r = IOERR;
+  }
+
+  return r;
+}
+
+

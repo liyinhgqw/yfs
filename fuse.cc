@@ -496,8 +496,36 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   (void) e;
 
   // You fill this in for Lab 3
-#if 0
-  fuse_reply_entry(req, &e);
+#if 1
+  yfs_client::inum parent_inum = parent;
+  if (yfs->isdir(parent_inum)) {
+    std::string buf;
+    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+      std::string name_str = std::string(name);
+      if (buf.find(name_str + "=") != std::string::npos) {
+        printf("dir %s exists. \n", name);
+        fuse_reply_err(req, EEXIST);
+      }
+
+      yfs_client::inum inum = yfs->get_inum(yfs_client::DIR);
+      buf.append(name_str);
+      buf.append("=");
+      buf.append(yfs_client::filename(inum));
+      buf.append(";");
+
+      yfs->putcontent(inum, "");
+      yfs->putcontent(parent_inum, buf);
+
+      e.ino = inum;
+      getattr(inum, e.attr);
+
+      fuse_reply_entry(req, &e);
+      return;
+    }
+  }
+  fuse_reply_err(req, ENOSYS);
+  return;
+
 #else
   fuse_reply_err(req, ENOSYS);
 #endif
@@ -517,7 +545,43 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
   // You fill this in for Lab 3
   // Success:	fuse_reply_err(req, 0);
   // Not found:	fuse_reply_err(req, ENOENT);
+  printf("!!");
+  yfs_client::inum parent_inum = parent;
+  if (yfs->isdir(parent_inum)) {
+    std::string buf;
+    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+      std::string name_str = std::string(name);
+      size_t pos = buf.find(name_str + "=");
+      size_t epos = buf.find_first_of(";", pos);
+
+      if (pos == std::string::npos) {
+        printf("file %s exists. \n", name);
+        fuse_reply_err(req, ENOENT);
+      }
+
+      printf("great");
+      std::string buf_inum = buf.substr(pos);
+      size_t begin_pos = buf_inum.find_first_of("=") + 1;
+      size_t end_pos = buf_inum.find_first_not_of(";");
+      buf_inum = buf_inum.substr(begin_pos, end_pos - begin_pos + 1);
+
+      yfs_client::inum inum = yfs->n2i(buf_inum);
+      if (yfs->isdir(inum)) {
+        fuse_reply_err(req, ENOENT);
+        return;
+      }
+
+      yfs->remove(inum);
+      buf = buf.replace(pos, epos - pos + 1, "");
+      yfs->putcontent(parent, buf);
+
+      fuse_reply_err(req, 0);
+      return;
+    }
+  }
+
   fuse_reply_err(req, ENOSYS);
+  return;
 }
 
 void

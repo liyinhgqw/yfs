@@ -50,6 +50,8 @@ class yfs_client {
   int getcontent(inum, std::string &);
   int putcontent(inum, std::string);
 
+  int remove(inum);
+
   inum get_inum(inode_type);
 };
 
