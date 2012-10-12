@@ -14,6 +14,7 @@
 yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 {
   ec = new extent_client(extent_dst);
+  lc = new lock_client(lock_dst);
 }
 
 yfs_client::inum
@@ -62,9 +63,12 @@ yfs_client::isdir(inum inum)
 int
 yfs_client::getfile(inum inum, fileinfo &fin)
 {
+  lc->acquire(inum);
+
   int r = OK;
   // You modify this function for Lab 3
   // - hold and release the file lock
+
 
   printf("getfile %016llx\n", inum);
   extent_protocol::attr a;
@@ -87,6 +91,8 @@ yfs_client::getfile(inum inum, fileinfo &fin)
 int
 yfs_client::getdir(inum inum, dirinfo &din)
 {
+//  lc->acquire(inum);
+
   int r = OK;
   // You modify this function for Lab 3
   // - hold and release the directory lock
@@ -102,12 +108,14 @@ yfs_client::getdir(inum inum, dirinfo &din)
   din.ctime = a.ctime;
 
  release:
+//  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::getcontent(inum inum, std::string &content)
 {
+//  lc->acquire(inum);
   int r = OK;
 
   printf("getcontent %016llx\n", inum);
@@ -116,12 +124,15 @@ yfs_client::getcontent(inum inum, std::string &content)
   }
   std::cout << " >> " << content << std::endl;
 
+//  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::putcontent(inum inum, std::string content)
 {
+//  lc->acquire(inum);
+
   int r = OK;
 
   printf("putcontent %016llx\n", inum);
@@ -129,12 +140,15 @@ yfs_client::putcontent(inum inum, std::string content)
     r = IOERR;
   }
 
+//  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::remove(inum inum)
 {
+//  lc->acquire(inum);
+
   int r = OK;
 
   printf("remove %016llx\n", inum);
@@ -142,6 +156,7 @@ yfs_client::remove(inum inum)
     r = IOERR;
   }
 
+//  lc->release(inum);
   return r;
 }
 

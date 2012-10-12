@@ -223,7 +223,7 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   yfs_client::inum inum = ino;
   yfs_client::status ret;
   std::string content_buf;
-  std::string write_buf = std::string(buf);
+  std::string write_buf = std::string(buf, sizeof(buf));
 
   ret = yfs->getcontent(inum, content_buf);
   if(ret != yfs_client::OK){
