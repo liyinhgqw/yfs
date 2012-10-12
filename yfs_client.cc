@@ -84,6 +84,7 @@ yfs_client::getfile(inum inum, fileinfo &fin)
   printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
  release:
+   lc->release(inum);
 
   return r;
 }
@@ -91,7 +92,7 @@ yfs_client::getfile(inum inum, fileinfo &fin)
 int
 yfs_client::getdir(inum inum, dirinfo &din)
 {
-//  lc->acquire(inum);
+  lc->acquire(inum);
 
   int r = OK;
   // You modify this function for Lab 3
@@ -108,14 +109,14 @@ yfs_client::getdir(inum inum, dirinfo &din)
   din.ctime = a.ctime;
 
  release:
-//  lc->release(inum);
+  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::getcontent(inum inum, std::string &content)
 {
-//  lc->acquire(inum);
+  lc->acquire(inum);
   int r = OK;
 
   printf("getcontent %016llx\n", inum);
@@ -124,14 +125,14 @@ yfs_client::getcontent(inum inum, std::string &content)
   }
   std::cout << " >> " << content << std::endl;
 
-//  lc->release(inum);
+  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::putcontent(inum inum, std::string content)
 {
-//  lc->acquire(inum);
+  lc->acquire(inum);
 
   int r = OK;
 
@@ -140,14 +141,14 @@ yfs_client::putcontent(inum inum, std::string content)
     r = IOERR;
   }
 
-//  lc->release(inum);
+  lc->release(inum);
   return r;
 }
 
 int
 yfs_client::remove(inum inum)
 {
-//  lc->acquire(inum);
+  lc->acquire(inum);
 
   int r = OK;
 
@@ -156,7 +157,7 @@ yfs_client::remove(inum inum)
     r = IOERR;
   }
 
-//  lc->release(inum);
+  lc->release(inum);
   return r;
 }
 
