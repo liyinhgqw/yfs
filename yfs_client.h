@@ -54,6 +54,9 @@ class yfs_client {
   int remove(inum);
 
   inum get_inum(inode_type);
+
+  void lock(inum);
+  void unlock(inum);
 };
 
 #endif 

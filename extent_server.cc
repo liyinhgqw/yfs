@@ -27,8 +27,6 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &) {
   _attr.mtime = now;
   _attr.size = buf.size();
   return extent_protocol::OK;
-
-  return extent_protocol::NOENT;
 }
 
 int extent_server::get(extent_protocol::extentid_t id, std::string &buf) {

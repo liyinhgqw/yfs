@@ -98,7 +98,10 @@ fuseserver_getattr(fuse_req_t req, fuse_ino_t ino,
     yfs_client::inum inum = ino; // req->in.h.nodeid;
     yfs_client::status ret;
 
+    yfs->lock(inum);             // LOCK
     ret = getattr(inum, st);
+    yfs->unlock(inum);           // UNLOCK
+
     if(ret != yfs_client::OK){
       fuse_reply_err(req, ENOENT);
       return;
@@ -124,21 +127,21 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
                    int to_set, struct fuse_file_info *fi)
 {
   printf("fuseserver_setattr 0x%x\n", to_set);
+  yfs_client::inum inum = ino;
+  yfs->lock(inum);                                // LOCK
   if (FUSE_SET_ATTR_SIZE & to_set) {
     printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
     struct stat st;
     // You fill this in for Lab 2
-#if 1
     // Change the above line to "#if 1", and your code goes here
     // Note: fill st using getattr before fuse_reply_attr
-    yfs_client::inum inum = ino;
     yfs_client::status ret;
     std::string content_buf;
 
     ret = yfs->getcontent(inum, content_buf);
     if(ret != yfs_client::OK){
       fuse_reply_err(req, ENOENT);
-      return;
+      goto release;
     }
 
     size_t new_size, cur_size;
@@ -152,12 +155,13 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     yfs->putcontent(inum, content_buf);
     getattr(inum, st);
     fuse_reply_attr(req, &st, 0);
-#else
-    fuse_reply_err(req, ENOSYS);
-#endif
   } else {
     fuse_reply_err(req, ENOSYS);
   }
+
+release:
+  yfs->unlock(inum);                           // UNLOCK
+  return;
 }
 
 //
@@ -177,24 +181,25 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                 off_t off, struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 1
   std::string buf;
   // Change the above "#if 0" to "#if 1", and your code goes here
   yfs_client::inum inum = ino;
   yfs_client::status ret;
 
+  yfs->lock(inum);                                      // LOCK
   ret = yfs->getcontent(inum, buf);
   printf("read content_buf: %s\n", buf.c_str());
   if(ret != yfs_client::OK){
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
   buf = buf.substr(off, size);
   fuse_reply_buf(req, buf.c_str(), buf.size());
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+
+release:
+  yfs->unlock(inum);                                   // UNLOCK
+  return;
 }
 
 //
@@ -218,17 +223,17 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
                  struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 1
   // Change the above line to "#if 1", and your code goes here
   yfs_client::inum inum = ino;
   yfs_client::status ret;
   std::string content_buf;
-  std::string write_buf = std::string(buf, sizeof(buf));
+  std::string write_buf = std::string(buf);
 
+  yfs->lock(inum);                                         // LOCK
   ret = yfs->getcontent(inum, content_buf);
   if(ret != yfs_client::OK){
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
   if (write_buf.size() >= size) {
@@ -237,10 +242,12 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
     write_buf.append(size - write_buf.size(), '\0');
   }
 
+  printf("# %d , %ld , %d \n", content_buf.size(), off, size);
   if (content_buf.size() <= off) {
     content_buf.append(off - content_buf.size(), '\0');
     content_buf.append(write_buf);
   } else if (content_buf.size() <= off + size) {
+    printf("!!!!");
     content_buf = content_buf.substr(0, off);
     content_buf.append(write_buf);
   } else {
@@ -249,9 +256,10 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   yfs->putcontent(inum, content_buf);
 
   fuse_reply_write(req, size);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+
+release:
+  yfs->unlock(inum);                                      // UNLOCK
+  return;
 }
 
 //
@@ -282,13 +290,20 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   e->generation = 0;
   // You fill this in for Lab 2
   yfs_client::inum parent_inum = parent;
+  yfs_client::status ret;
+
+  yfs->lock(parent_inum);                            // LOCK parent
+
   if (yfs->isdir(parent_inum)) {
     std::string buf;
-    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+    ret = yfs->getcontent(parent, buf);
+
+    if (ret == yfs_client::OK) {
       std::string name_str = std::string(name);
       if (buf.find(name_str + "=") != std::string::npos) {
         printf("file %s exists. \n", name);
-        return yfs_client::EXIST;
+        ret = yfs_client::EXIST;
+        goto release;
       }
 
       yfs_client::inum inum = yfs->get_inum(yfs_client::FILE);
@@ -297,17 +312,19 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
       buf.append(yfs_client::filename(inum));
       buf.append(";");
 
+      yfs->lock(inum);                          // LOCK
       yfs->putcontent(inum, "");
+      yfs->unlock(inum);  // UNLOCK
       yfs->putcontent(parent_inum, buf);
 
       e->ino = inum;
       getattr(inum, e->attr);
-
-      return yfs_client::OK;
     }
   }
 
-  return yfs_client::NOENT;
+release:
+  yfs->unlock(parent_inum);                          // UNLOCK parent
+  return ret;
 }
 
 void
@@ -356,13 +373,17 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   e.entry_timeout = 0.0;
   e.generation = 0;
   bool found = false;
+  yfs_client::status ret;
 
   std::cout << "... lookup ... [parent:]" << parent << ", [name:]" << name << std::endl;
   // You fill this in for Lab 2
   yfs_client::inum parent_inum = parent;
+  yfs->lock(parent_inum);             // LOCK parent
   if (yfs->isdir(parent_inum)) {
     std::string buf;
-    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+    ret = yfs->getcontent(parent_inum, buf);
+
+    if (ret == yfs_client::OK) {
       std::string name_str = std::string(name);
       size_t pos = buf.find(name_str + "=");
       if (pos != std::string::npos) {
@@ -376,10 +397,14 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
         yfs_client::inum inum = yfs_client::n2i(inum_str);
         e.ino = inum;
         std::cout << "--- lookup ... [inum:]" << inum << std::endl;
+
+        yfs->lock(inum);                // LOCK
         getattr(inum, e.attr);
+        yfs->unlock(inum);
       }
     }
   }
+  yfs->unlock(parent_inum);
 
   if (found)
     fuse_reply_entry(req, &e);
@@ -442,6 +467,7 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
 
   // You fill this in for Lab 2
+  yfs->lock(inum);            // LOCK
   std::string buf;
   yfs->getcontent(inum, buf);
   std::stringstream ss(buf);
@@ -460,6 +486,7 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
     inode_inum = yfs_client::n2i(inode_list[i].substr(pos + 1));
     dirbuf_add(&b, inode_name.c_str(), inode_inum);
   }
+  yfs->unlock(inum);         // LOCK
 
   reply_buf_limited(req, b.p, b.size, off, size);
   free(b.p);
@@ -495,40 +522,46 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   // Suppress compiler warning of unused e.
   (void) e;
 
+  yfs_client::status ret;
+
   // You fill this in for Lab 3
-#if 1
   yfs_client::inum parent_inum = parent;
+  yfs->lock(parent_inum);       // LOCK parent
+
   if (yfs->isdir(parent_inum)) {
     std::string buf;
-    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+    ret = yfs->getcontent(parent_inum, buf);
+
+
+    if (ret == yfs_client::OK) {
       std::string name_str = std::string(name);
       if (buf.find(name_str + "=") != std::string::npos) {
         printf("dir %s exists. \n", name);
         fuse_reply_err(req, EEXIST);
+      } else {
+        yfs_client::inum inum = yfs->get_inum(yfs_client::DIR);
+        buf.append(name_str);
+        buf.append("=");
+        buf.append(yfs_client::filename(inum));
+        buf.append(";");
+
+        yfs->lock(inum);              // LOCK
+        yfs->putcontent(inum, "");
+        yfs->putcontent(parent_inum, buf);
+
+        e.ino = inum;
+        getattr(inum, e.attr);
+
+        yfs->unlock(inum);
+
+        fuse_reply_entry(req, &e);
       }
-
-      yfs_client::inum inum = yfs->get_inum(yfs_client::DIR);
-      buf.append(name_str);
-      buf.append("=");
-      buf.append(yfs_client::filename(inum));
-      buf.append(";");
-
-      yfs->putcontent(inum, "");
-      yfs->putcontent(parent_inum, buf);
-
-      e.ino = inum;
-      getattr(inum, e.attr);
-
-      fuse_reply_entry(req, &e);
-      return;
+    } else {
+      fuse_reply_err(req, ENOSYS);
     }
   }
-  fuse_reply_err(req, ENOSYS);
-  return;
 
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  yfs->unlock(parent_inum);
 }
 
 //
@@ -545,11 +578,14 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
   // You fill this in for Lab 3
   // Success:	fuse_reply_err(req, 0);
   // Not found:	fuse_reply_err(req, ENOENT);
-  printf("!!");
+  yfs_client::status ret;
   yfs_client::inum parent_inum = parent;
   if (yfs->isdir(parent_inum)) {
     std::string buf;
-    if (yfs->getcontent(parent, buf) == yfs_client::OK) {
+    yfs->lock(parent_inum);                     // LOCK parent
+    ret = yfs->getcontent(parent_inum, buf);
+
+    if (ret == yfs_client::OK) {
       std::string name_str = std::string(name);
       size_t pos = buf.find(name_str + "=");
       size_t epos = buf.find_first_of(";", pos);
@@ -557,31 +593,31 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
       if (pos == std::string::npos) {
         printf("file %s exists. \n", name);
         fuse_reply_err(req, ENOENT);
+      } else {
+        printf("great");
+        std::string buf_inum = buf.substr(pos);
+        size_t begin_pos = buf_inum.find_first_of("=") + 1;
+        size_t end_pos = buf_inum.find_first_not_of(";");
+        buf_inum = buf_inum.substr(begin_pos, end_pos - begin_pos + 1);
+
+        yfs_client::inum inum = yfs->n2i(buf_inum);
+        yfs->lock(inum);                          // LOCK inum
+        if (yfs->isdir(inum)) {
+          fuse_reply_err(req, ENOENT);
+        } else {
+          yfs->remove(inum);
+          buf = buf.replace(pos, epos - pos + 1, "");
+          yfs->putcontent(parent, buf);
+        }
+        yfs->unlock(inum);
+
+        fuse_reply_err(req, 0);
       }
-
-      printf("great");
-      std::string buf_inum = buf.substr(pos);
-      size_t begin_pos = buf_inum.find_first_of("=") + 1;
-      size_t end_pos = buf_inum.find_first_not_of(";");
-      buf_inum = buf_inum.substr(begin_pos, end_pos - begin_pos + 1);
-
-      yfs_client::inum inum = yfs->n2i(buf_inum);
-      if (yfs->isdir(inum)) {
-        fuse_reply_err(req, ENOENT);
-        return;
-      }
-
-      yfs->remove(inum);
-      buf = buf.replace(pos, epos - pos + 1, "");
-      yfs->putcontent(parent, buf);
-
-      fuse_reply_err(req, 0);
-      return;
+    } else {
+      fuse_reply_err(req, ENOSYS);
     }
+    yfs->unlock(parent_inum);
   }
-
-  fuse_reply_err(req, ENOSYS);
-  return;
 }
 
 void
@@ -654,13 +690,13 @@ main(int argc, char *argv[])
 
   fuse_args args = FUSE_ARGS_INIT( fuse_argc, (char **) fuse_argv );
   int foreground;
-  int res = fuse_parse_cmdline( &args, &mountpoint, 0 /*multithreaded*/, 
+  int res = fuse_parse_cmdline( &args, &mountpoint, 0 /*multithreaded*/,
         &foreground );
   if( res == -1 ) {
     fprintf(stderr, "fuse_parse_cmdline failed\n");
     return 0;
   }
-  
+
   args.allocated = 0;
 
   fd = fuse_mount(mountpoint, &args);
@@ -687,7 +723,7 @@ main(int argc, char *argv[])
   fuse_session_add_chan(se, ch);
   // err = fuse_session_loop_mt(se);   // FK: wheelfs does this; why?
   err = fuse_session_loop(se);
-    
+
   fuse_session_destroy(se);
   close(fd);
   fuse_unmount(mountpoint);
