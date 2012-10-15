@@ -14,7 +14,19 @@
 yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 {
   ec = new extent_client(extent_dst);
+  lc = new lock_client(lock_dst);
+}
 
+yfs_client::inum
+yfs_client::get_inum(yfs_client::inode_type type) {
+  yfs_client::inum inum;
+  inum = rand();
+  if (type == yfs_client::FILE) {
+    inum |= 0x80000000;
+  } else {
+    inum &= 0x7FFFFFFF;
+  }
+  return inum;
 }
 
 yfs_client::inum
@@ -55,6 +67,7 @@ yfs_client::getfile(inum inum, fileinfo &fin)
   // You modify this function for Lab 3
   // - hold and release the file lock
 
+
   printf("getfile %016llx\n", inum);
   extent_protocol::attr a;
   if (ec->getattr(inum, a) != extent_protocol::OK) {
@@ -69,7 +82,6 @@ yfs_client::getfile(inum inum, fileinfo &fin)
   printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
  release:
-
   return r;
 }
 
@@ -92,6 +104,56 @@ yfs_client::getdir(inum inum, dirinfo &din)
 
  release:
   return r;
+}
+
+int
+yfs_client::getcontent(inum inum, std::string &content)
+{
+  int r = OK;
+
+  printf("getcontent %016llx\n", inum);
+  if (ec->get(inum, content) != extent_protocol::OK) {
+    r = IOERR;
+  }
+  std::cout << " >> " << content << std::endl;
+
+  return r;
+}
+
+int
+yfs_client::putcontent(inum inum, std::string content)
+{
+  int r = OK;
+
+  printf("putcontent %016llx\n", inum);
+  if (ec->put(inum, content) != extent_protocol::OK) {
+    r = IOERR;
+  }
+
+  return r;
+}
+
+int
+yfs_client::remove(inum inum)
+{
+  int r = OK;
+
+  printf("remove %016llx\n", inum);
+  if (ec->remove(inum) != extent_protocol::OK) {
+    r = IOERR;
+  }
+
+  return r;
+}
+
+void yfs_client::lock(inum inum)
+{
+  lc->acquire(inum);
+}
+
+void yfs_client::unlock(inum inum)
+{
+  lc->release(inum);
 }
 
 
