@@ -25,6 +25,11 @@ class lock_client_cache : public lock_client {
   int rlock_port;
   std::string hostname;
   std::string id;
+  std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus;
+  std::map<lock_protocol::lockid_t, bool> revoke_;
+  pthread_mutex_t m_[256];
+  pthread_cond_t c_[256];
+
  public:
   lock_client_cache(std::string xdst, class lock_release_user *l = 0);
   virtual ~lock_client_cache() {};
