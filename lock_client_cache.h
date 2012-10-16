@@ -29,6 +29,7 @@ class lock_client_cache : public lock_client {
   std::map<lock_protocol::lockid_t, bool> revoke_;
   pthread_mutex_t m_[256];
   pthread_cond_t c_[256];
+  std::string get_hostandport();
 
  public:
   lock_client_cache(std::string xdst, class lock_release_user *l = 0);
