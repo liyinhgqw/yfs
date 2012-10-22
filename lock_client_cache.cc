@@ -17,9 +17,9 @@
 std::string
 lock_client_cache::get_hostandport() {
   hostname = "127.0.0.1";
-  port = 60000 + rand() % 10000;
+  rlock_port = 60000 + rand() % 10000;
   std::ostringstream itoa;
-  itoa << port;
+  itoa << rlock_port;
   return hostname + itoa.str();
 }
 
@@ -36,7 +36,7 @@ lock_client_cache::lock_client_cache(std::string xdst, lock_release_user *l) {
     pthread_cond_init(&c_[i], NULL);
   }
 
-  rpcs client(port, 100);
+  rpcs client(rlock_port, 100);
   client.reg(lock_protocol::retry, this, &lock_client_cache::retry_handler);
   client.reg(lock_protocol::revoke, this, &lock_client_cache::revoke_handler);
 }

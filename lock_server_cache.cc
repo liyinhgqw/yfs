@@ -5,7 +5,7 @@
  *      Author: liyinhgqw
  */
 
-#include "lock_server.h"
+#include "lock_server_cache.h"
 #include "rpc/slock.h"
 #include <sstream>
 #include <stdio.h>
@@ -26,7 +26,7 @@ lock_server_cache::stat(lock_protocol::lockid_t lid, int &r)
 {
   lock_protocol::status ret;
   r = nacquire;
-
+  ret = lock_protocol::OK;
   return ret;
 }
 
@@ -38,25 +38,42 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
 
   pthread_mutex_lock(&m_[lid & 0xff]);
 
-  add_client(id);
-  rpcc *pos = find_lock(lid);
+//  add_client(id);
+//  rpcc *pos = find_lock(lid);
   if (lstatus.find(lid) == lstatus.end()
       || lstatus[lid] == lock_protocol::FREE) {
     lock_pos_[lid] = id;
     ret = lock_protocol::OK;
     lstatus[lid] = lock_protocol::ASSIGNING;
     pthread_mutex_unlock(&m_[lid & 0xff]);
-    rpcc_map_[id]->call(lock_protocol::retry, lid, r);
+
+    handle h(id);
+    lock_protocol::status ret;
+    if (h.safebind()) {
+      ret = h.safebind()->call(lock_protocol::retry, lid, r);
+    }
+    if (!h.safebind() || ret != lock_protocol::OK) {
+      // handle failure
+    }
+
     pthread_mutex_lock(&m_[lid & 0xff]);
     lstatus[lid] = lock_protocol::OWNED;
   } else if (lstatus[lid] == lock_protocol::OWNED){
     if (lock_pos_[lid] == id) {
       printf("you are the lock owner!\n");
-
     } else {
       lstatus[lid] = lock_protocol::REVOKING;
       pthread_mutex_unlock(&m_[lid & 0xff]);
-      pos->call(lock_protocol::revoke, lid, r);
+
+      handle h(lock_pos_[lid]);
+      lock_protocol::status ret;
+      if (h.safebind()) {
+        ret = h.safebind()->call(lock_protocol::revoke, lid, r);
+      }
+      if (!h.safebind() || ret != lock_protocol::OK) {
+        // handle failure
+      }
+
       pthread_mutex_lock(&m_[lid & 0xff]);
       ret = lock_protocol::RETRY;
     }
@@ -78,8 +95,7 @@ lock_server_cache::release(lock_protocol::lockid_t lid, std::string id, int &r)
   r = nacquire;
 
   pthread_mutex_lock(&m_[lid & 0xff]);
-  add_client(id);
-  lock_pos_[lid] = NULL;
+  lock_pos_.erase(lid);
   lstatus[lid] = lock_protocol::FREE;
   pthread_mutex_unlock(&m_[lid & 0xff]);
 

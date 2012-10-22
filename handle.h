@@ -59,7 +59,9 @@ class handle {
    *     // handle failure
    *   }
    */
-  rpcc *safebind();
+  rpcc *safebind() {
+    return h ? (h->cl) : NULL;
+  }
 };
 
 class handle_mgr {
