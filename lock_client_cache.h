@@ -22,7 +22,7 @@ class lock_release_user {
 class lock_client_cache : public lock_client {
  private:
   class lock_release_user *lu;
-  int rlock_port;
+  unsigned int rlock_port;
   std::string hostname;
   std::string id;
   std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus;

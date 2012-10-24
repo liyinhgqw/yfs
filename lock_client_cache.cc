@@ -16,8 +16,6 @@
 
 std::string
 lock_client_cache::get_hostandport() {
-  hostname = "127.0.0.1";
-  rlock_port = 60000 + rand() % 10000;
   std::ostringstream itoa;
   itoa << rlock_port;
   return hostname + itoa.str();
@@ -36,13 +34,23 @@ lock_client_cache::lock_client_cache(std::string xdst, lock_release_user *l) {
     pthread_cond_init(&c_[i], NULL);
   }
 
-  rpcs client(rlock_port, 100);
-  client.reg(lock_protocol::retry, this, &lock_client_cache::retry_handler);
-  client.reg(lock_protocol::revoke, this, &lock_client_cache::revoke_handler);
+  hostname = "127.0.0.1:";
+  rlock_port = 40000 + rand() % 5000;
+
+  int count = 0;
+  char *count_env = getenv("RPC_COUNT");
+  if(count_env != NULL){
+    count = atoi(count_env);
+  }
+  rpcs *client = new rpcs(rlock_port, count);
+  client->reg(lock_protocol::retry, this, &lock_client_cache::retry_handler);
+  client->reg(lock_protocol::revoke, this, &lock_client_cache::revoke_handler);
 }
 
 lock_protocol::status
 lock_client_cache::acquire(lock_protocol::lockid_t lid) {
+  printf("[client] acquire %016llx %s \n", lid, get_hostandport().c_str());
+
   lock_protocol::status ret;
   int r;
 
@@ -56,7 +64,9 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid) {
     if (cstatus == lock_protocol::NONE) {
       lstatus[lid] = lock_protocol::ACQURING;
       pthread_mutex_unlock(&m_[lid & 0xff]);
+
       ret = cl->call(lock_protocol::acquire, lid, get_hostandport(), r);
+
       pthread_mutex_lock(&m_[lid & 0xff]);
       if (ret == lock_protocol::OK) {
         // wait for the 'retry' signal
@@ -82,7 +92,7 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid) {
       printf("Unknown status !\n");
     }
 
-    sleep(0.5);
+    sleep(0.2);
   }
 
   pthread_mutex_unlock(&m_[lid & 0xff]);
@@ -92,6 +102,7 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid) {
 
 lock_protocol::status
 lock_client_cache::release(lock_protocol::lockid_t lid) {
+  printf("[client] release %016llx %s \n", lid, get_hostandport().c_str());
   lock_protocol::status ret;
   int r;
 
@@ -107,7 +118,9 @@ lock_client_cache::release(lock_protocol::lockid_t lid) {
         && revoke_[lid] == true) {
       lstatus[lid] = lock_protocol::RELEASING;
       pthread_mutex_unlock(&m_[lid & 0xff]);
+
       ret = cl->call(lock_protocol::release, lid, get_hostandport(), r);
+
       pthread_mutex_lock(&m_[lid & 0xff]);
       revoke_[lid] = false;
     } else {
@@ -126,6 +139,8 @@ lock_client_cache::release(lock_protocol::lockid_t lid) {
 rlock_protocol::status
 lock_client_cache::revoke_handler(lock_protocol::lockid_t lid,
                                         int &) {
+  printf("[client] revoke %016llx %s \n", lid, get_hostandport().c_str());
+
   revoke_[lid] = true;
   return lock_protocol::OK;
 }
@@ -133,6 +148,8 @@ lock_client_cache::revoke_handler(lock_protocol::lockid_t lid,
 rlock_protocol::status
 lock_client_cache::retry_handler(lock_protocol::lockid_t lid,
                                        int &) {
+  printf("[client] retry %016llx %s \n", lid, get_hostandport().c_str());
+
   pthread_mutex_lock(&m_[lid & 0xff]);    // LOCK status
   lstatus[lid] = lock_protocol::LOCKED;
   pthread_cond_signal(&c_[lid & 0xff]);

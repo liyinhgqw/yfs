@@ -7,6 +7,7 @@
 
 #include "lock_server_cache.h"
 #include "rpc/slock.h"
+#include "handle.h"
 #include <sstream>
 #include <stdio.h>
 #include <unistd.h>
@@ -33,13 +34,13 @@ lock_server_cache::stat(lock_protocol::lockid_t lid, int &r)
 lock_protocol::status
 lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
 {
+  printf("[server] acquire %016llx %s \n", lid, id.c_str());
+
   lock_protocol::status ret;
   r = nacquire;
 
   pthread_mutex_lock(&m_[lid & 0xff]);
 
-//  add_client(id);
-//  rpcc *pos = find_lock(lid);
   if (lstatus.find(lid) == lstatus.end()
       || lstatus[lid] == lock_protocol::FREE) {
     lock_pos_[lid] = id;
@@ -47,13 +48,18 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
     lstatus[lid] = lock_protocol::ASSIGNING;
     pthread_mutex_unlock(&m_[lid & 0xff]);
 
+    printf("Begin handle ...\n");
     handle h(id);
-    lock_protocol::status ret;
+    printf("End handle ...\n");
+
     if (h.safebind()) {
+      printf("[server] call retry \n");
       ret = h.safebind()->call(lock_protocol::retry, lid, r);
     }
     if (!h.safebind() || ret != lock_protocol::OK) {
       // handle failure
+      printf("safebind error!");
+      abort();
     }
 
     pthread_mutex_lock(&m_[lid & 0xff]);
@@ -61,6 +67,7 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
   } else if (lstatus[lid] == lock_protocol::OWNED){
     if (lock_pos_[lid] == id) {
       printf("you are the lock owner!\n");
+      ret = lock_protocol::RETRY;
     } else {
       lstatus[lid] = lock_protocol::REVOKING;
       pthread_mutex_unlock(&m_[lid & 0xff]);
@@ -82,6 +89,8 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
     ret = lock_protocol::RETRY;
   }
 
+  printf("[server] acquire ret = %d \n", ret);
+
   pthread_mutex_unlock(&m_[lid & 0xff]);
 
   return ret;
@@ -90,6 +99,7 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
 lock_protocol::status
 lock_server_cache::release(lock_protocol::lockid_t lid, std::string id, int &r)
 {
+  printf("[server] release %016llx %s \n", lid, id.c_str());
 
   lock_protocol::status ret;
   r = nacquire;
