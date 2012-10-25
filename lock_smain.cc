@@ -17,7 +17,7 @@ force_exit(int) {
 int
 main(int argc, char *argv[])
 {
-  int count = 0;
+  int count = 100;
 
   // Force the lock_server to exit after 20 minutes
   signal(SIGALRM, force_exit);

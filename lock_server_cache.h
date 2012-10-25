@@ -13,7 +13,7 @@ class lock_server_cache {
  private:
   int nacquire;
   std::map<lock_protocol::lockid_t, std::string> lock_pos_;
-  pthread_mutex_t m_[256];
+  pthread_mutex_t m_;
   std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus;
 
  public:

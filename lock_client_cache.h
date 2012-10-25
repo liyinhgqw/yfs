@@ -27,7 +27,7 @@ class lock_client_cache : public lock_client {
   std::string id;
   std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus;
   std::map<lock_protocol::lockid_t, bool> revoke_;
-  pthread_mutex_t m_[256];
+  pthread_mutex_t m_;
   pthread_cond_t c_[256];
   std::string get_hostandport();
 
