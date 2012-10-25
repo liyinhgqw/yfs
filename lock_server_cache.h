@@ -14,7 +14,8 @@ class lock_server_cache {
   int nacquire;
   std::map<lock_protocol::lockid_t, std::string> lock_pos_;
   pthread_mutex_t m_;
-  std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus;
+  std::map<lock_protocol::lockid_t, lock_protocol::ccstatus> lstatus_;
+  std::map<lock_protocol::lockid_t, std::list<std::string> > acquire_list_;
 
  public:
   lock_server_cache();
