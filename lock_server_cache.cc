@@ -33,122 +33,79 @@ lock_protocol::status
 lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
 {
   printf("\n@ [server] acquire %016llx %s \n", lid, id.c_str());
-
-  lock_protocol::status ret = lock_protocol::OK;
-  r = nacquire;
-
   pthread_mutex_lock(&m_);
 
-  if (lstatus_.find(lid) == lstatus_.end()
-      || lstatus_[lid] == lock_protocol::FREE) {  // Free: acquire_list_ is empty
+  if (lock_pos_.find(lid) == lock_pos_.end()) {
     lock_pos_[lid] = id;
-    ret = lock_protocol::OK;
-    lstatus_[lid] = lock_protocol::ASSIGNING;
     pthread_mutex_unlock(&m_);
-    // bind and send retry
-    handle h(id);
-    if (h.safebind()) {
-      printf("  [server] call retry, %s \n", id.c_str());
-      ret = h.safebind()->call(lock_protocol::retry, lid, r);
-      printf("  [server] RPC retry done, %s ! \n", id.c_str());
-    }
-    if (!h.safebind() || ret != lock_protocol::OK) {
-      // handle failure
-      printf("safebind error!");
-      abort();
-    }
-    pthread_mutex_lock(&m_);
-    lstatus_[lid] = lock_protocol::OWNED;
-  } else {  // Not Free
-    acquire_list_[lid].push_back(id);
-    if (acquire_list_[lid].size() <= 1) {
-      pthread_mutex_unlock(&m_);
-      // bind and send revoke
-      handle h(lock_pos_[lid]);
-      if (h.safebind()) {
-        printf("  [server] call revoke, %s \n", lock_pos_[lid].c_str());
-        ret = h.safebind()->call(lock_protocol::revoke, lid, r);
-        printf("  [server] RPC revoke done ! %s\n", lock_pos_[lid].c_str());
-      }
-      if (!h.safebind() || ret != lock_protocol::OK) {
-        // handle failure
-        printf("safebind error!");
-        abort();
-      }
-      pthread_mutex_lock(&m_);
-    }
+    return lock_protocol::OK;
+  } else {
+    acquire_map_[lid].push_back(make_pair(id, false));
   }
 
-  printf("@@ [server] acquire %016llx %s \n", lid, id.c_str());
-
   pthread_mutex_unlock(&m_);
-
-  return ret;
+  check_retry_and_revoke(lid);
+  return lock_protocol::RETRY;
 }
 
 lock_protocol::status
 lock_server_cache::release(lock_protocol::lockid_t lid, std::string id, int &r)
 {
   printf("\n@ [server] release %016llx %s \n", lid, id.c_str());
-
   lock_protocol::status ret;
   r = nacquire;
-
   pthread_mutex_lock(&m_);
-  if (lock_pos_[lid] == id)
+
+  if (lock_pos_[lid] == id) {
     lock_pos_.erase(lid);
-  else
-    printf("  %s is not the owner, cannot release ! %s is. \n", id.c_str(), lock_pos_[lid].c_str());
-
-  if (!acquire_list_[lid].empty()) {
-    std::string aid = acquire_list_[lid].front();
-    acquire_list_[lid].pop_front();
-    lock_pos_[lid] = aid;
-    ret = lock_protocol::OK;
-    lstatus_[lid] = lock_protocol::ASSIGNING;
-    pthread_mutex_unlock(&m_);
-    // bind and send retry
-    handle h(aid);
-    if (h.safebind()) {
-      printf("  [server] call retry, %s \n", aid.c_str());
-      ret = h.safebind()->call(lock_protocol::retry, lid, r);
-      printf("  [server] RPC retry done, %s ! \n", aid.c_str());
-    }
-    if (!h.safebind() || ret != lock_protocol::OK) {
-      // handle failure
-      printf("safebind error!");
-      abort();
-    }
-
-    pthread_mutex_lock(&m_);
-    lstatus_[lid] = lock_protocol::OWNED;
-
-    if (!acquire_list_[lid].empty()) {
-      pthread_mutex_unlock(&m_);
-      // bind and send revoke
-      handle h(aid);
-      if (h.safebind()) {
-        printf("  [server] call revoke %s \n", aid.c_str());
-        ret = h.safebind()->call(lock_protocol::revoke, lid, r);
-        printf("  [server] RPC revoke done ! %s \n", aid.c_str());
-      }
-      if (!h.safebind() || ret != lock_protocol::OK) {
-        // handle failure
-        printf("safebind error!");
-        abort();
-      }
-      pthread_mutex_lock(&m_);
-    }
   } else {
-    lstatus_[lid] = lock_protocol::FREE;
+    printf("wrong owner !\n");
+    abort();
   }
+
   pthread_mutex_unlock(&m_);
-
-  printf("@@ [server] release %016llx %s \n", lid, id.c_str());
-
-  ret = lock_protocol::OK;
-
-  return ret;
+  check_retry_and_revoke(lid);
+  return lock_protocol::OK;
 }
 
+void
+lock_server_cache::check_retry_and_revoke(lock_protocol::lockid_t lid)
+{
+  int r;
+  pthread_mutex_lock(&mm_);
+
+  // retry
+  if (acquire_map_.find(lid) != acquire_map_.end()) {
+    std::pair<std::string, bool> first_waiter = acquire_map_[lid].front();
+    std::string id = first_waiter.first;
+    if (lock_pos_.find(lid) == lock_pos_.end()) {
+      // send retry
+      handle h(id);
+      lock_pos_[lid] = id;
+      acquire_map_[lid].pop_front();
+
+      pthread_mutex_unlock(&m_);
+      h.safebind()->call(lock_protocol::retry, lid, r);
+      pthread_mutex_lock(&m_);
+    }
+  }
+
+  // revoke
+  if (acquire_map_.find(lid) != acquire_map_.end()) {
+    std::pair<std::string, bool> first_waiter = acquire_map_[lid].front();
+    std::string id = first_waiter.first;
+    bool sent = first_waiter.second;
+    if (!sent) {
+      first_waiter.second = true;
+      // send revoke
+      handle h(id);
+
+      pthread_mutex_unlock(&m_);
+      h.safebind()->call(lock_protocol::revoke, lid, r);
+      pthread_mutex_lock(&m_);
+    }
+  }
+
+  pthread_mutex_unlock(&mm_);
+}
 
