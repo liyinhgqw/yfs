@@ -17,6 +17,7 @@ lock_server_cache::lock_server_cache()
   :nacquire (0)
 {
   pthread_mutex_init(&m_, NULL);
+  pthread_mutex_init(&mm_, NULL);
 }
 
 
@@ -35,6 +36,7 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
   printf("\n@ [server] acquire %016llx %s \n", lid, id.c_str());
   pthread_mutex_lock(&m_);
 
+  handle h(id);
   if (lock_pos_.find(lid) == lock_pos_.end()) {
     lock_pos_[lid] = id;
     pthread_mutex_unlock(&m_);
@@ -44,7 +46,7 @@ lock_server_cache::acquire(lock_protocol::lockid_t lid, std::string id, int &r)
   }
 
   pthread_mutex_unlock(&m_);
-  check_retry_and_revoke(lid);
+  check_revoke(lid);
   return lock_protocol::RETRY;
 }
 
@@ -56,7 +58,8 @@ lock_server_cache::release(lock_protocol::lockid_t lid, std::string id, int &r)
   r = nacquire;
   pthread_mutex_lock(&m_);
 
-  if (lock_pos_[lid] == id) {
+  if (lock_pos_.find(lid) != lock_pos_.end() 
+      && lock_pos_[lid] == id) {
     lock_pos_.erase(lid);
   } else {
     printf("wrong owner !\n");
@@ -64,48 +67,66 @@ lock_server_cache::release(lock_protocol::lockid_t lid, std::string id, int &r)
   }
 
   pthread_mutex_unlock(&m_);
-  check_retry_and_revoke(lid);
+  check_retry(lid);
   return lock_protocol::OK;
 }
 
 void
-lock_server_cache::check_retry_and_revoke(lock_protocol::lockid_t lid)
+lock_server_cache::check_retry(lock_protocol::lockid_t lid)
 {
   int r;
-  pthread_mutex_lock(&mm_);
+  pthread_mutex_lock(&m_);
 
   // retry
-  if (acquire_map_.find(lid) != acquire_map_.end()) {
+  printf("retry ...");
+  if (acquire_map_.find(lid) != acquire_map_.end()
+      && !acquire_map_[lid].empty()) {
     std::pair<std::string, bool> first_waiter = acquire_map_[lid].front();
     std::string id = first_waiter.first;
     if (lock_pos_.find(lid) == lock_pos_.end()) {
       // send retry
-      handle h(id);
       lock_pos_[lid] = id;
+printf("bazzinga %s %016llx\n",id.c_str(), lid);
       acquire_map_[lid].pop_front();
-
+      handle h(id);
       pthread_mutex_unlock(&m_);
       h.safebind()->call(lock_protocol::retry, lid, r);
       pthread_mutex_lock(&m_);
+      printf("bzg: retry done %s %016llx!\n", id.c_str(), lid);
     }
   }
 
+  pthread_mutex_unlock(&m_);
+  check_revoke(lid);
+}
+
+void
+lock_server_cache::check_revoke(lock_protocol::lockid_t lid)
+{
+  int r;
+  pthread_mutex_lock(&m_);
+
   // revoke
-  if (acquire_map_.find(lid) != acquire_map_.end()) {
+  printf("revoke ... %016llx  ", lid);
+  if (acquire_map_.find(lid) != acquire_map_.end() 
+      && !acquire_map_[lid].empty()) {
     std::pair<std::string, bool> first_waiter = acquire_map_[lid].front();
     std::string id = first_waiter.first;
     bool sent = first_waiter.second;
-    if (!sent) {
-      first_waiter.second = true;
+    if (!sent && lock_pos_.find(lid) != lock_pos_.end()) {
+      acquire_map_[lid].pop_front();
+      acquire_map_[lid].push_front(make_pair(id, true));
       // send revoke
-      handle h(id);
-
+      std::string revoke_id = lock_pos_[lid];
+      handle h(revoke_id);
+      printf("<%s>\n", revoke_id.c_str());
       pthread_mutex_unlock(&m_);
       h.safebind()->call(lock_protocol::revoke, lid, r);
+      printf("SHOULD have called revoke %s %016llx\n", revoke_id.c_str(), lid); 
       pthread_mutex_lock(&m_);
     }
   }
 
-  pthread_mutex_unlock(&mm_);
+  pthread_mutex_unlock(&m_);
 }
 

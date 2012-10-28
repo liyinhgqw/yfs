@@ -21,7 +21,9 @@ class lock_server_cache {
   lock_protocol::status stat(lock_protocol::lockid_t, int &);
   int acquire(lock_protocol::lockid_t, std::string id, int &);
   int release(lock_protocol::lockid_t, std::string id, int &);
-  void check_retry_and_revoke(lock_protocol::lockid_t);
+  void check_retry(lock_protocol::lockid_t);
+  void check_revoke(lock_protocol::lockid_t);
+  
 };
 
 #endif
