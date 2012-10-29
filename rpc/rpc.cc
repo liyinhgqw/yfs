@@ -304,8 +304,8 @@ rpcc::call1(unsigned int proc, marshall &req, unmarshall &rep,
       dup_req_.buf.assign(req.cstr(), req.size());
       dup_req_.xid = ca.xid;
     }
-    //if (xid_rep > xid_rep_done_)
-    //  xid_rep_done_ = xid_rep;
+    if (xid_rep > xid_rep_done_)
+      xid_rep_done_ = xid_rep;
   }
 
   ScopedLock cal(&ca.m);
@@ -662,6 +662,7 @@ rpcs::add_reply(unsigned int clt_nonce, unsigned int xid,
             it->buf = b;
             it->sz = sz;
             it->cb_present = true;
+            return;
           }
         }      
 }
@@ -699,57 +700,58 @@ rpcs::free_reply_window(void)
 
 rpcs::rpcstate_t 
 rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
-		unsigned int xid_rep, char **b, int *sz)
+                                unsigned int xid_rep, char **b, int *sz)
 {
-	ScopedLock rwl(&reply_window_m_);
-       
-        std::list<reply_t>::iterator it;
-        // remove the replies which the clients already received
-          it = reply_window_[clt_nonce].begin();
-          while (it->xid <= xid_rep && it != reply_window_[clt_nonce].end())
-          {
-            it = reply_window_[clt_nonce].erase(it);
-          }
+  ScopedLock rwl(&reply_window_m_);
 
-        // handle duplication
-        for (it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); ++it)
-        { 
-          if (it->xid == xid)
-          {
-            if (it->cb_present)
-            {
-              *b = it->buf;
-              *sz = it->sz;
-              return DONE;
-            }
-            else {
-              return INPROGRESS;
-            }
-          }
-        }
+  // handle xid not found
+  if(last_xidrep_.count(clt_nonce) == 0)
+    last_xidrep_[clt_nonce] = xid_rep;
 
-        // handle xid not found
-        it=reply_window_[clt_nonce].begin();
-        if (it != reply_window_[clt_nonce].end() && xid < it->xid && xid < xid_rep)
-        {
-          return FORGOTTEN;
-        }
+  if(xid < last_xidrep_[clt_nonce])
+    return FORGOTTEN;
 
-        reply_t rep(xid);
-        rep.cb_present = false;
-        for (it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); ++it)
-        {
-          if (it->xid < xid)
-          {
-            reply_window_[clt_nonce].insert(it, rep);
-            break;
-          }
-        }
-        if (it == reply_window_[clt_nonce].end())
-        {
-          reply_window_[clt_nonce].push_back(rep);
-        }
-        return NEW;
+
+  //update last needed message
+  if(last_xidrep_[clt_nonce] < xid_rep)
+    last_xidrep_[clt_nonce] = xid_rep;
+  if (xid < xid_rep)
+  {
+    return FORGOTTEN;
+  }
+
+
+  std::list<reply_t>::iterator it;
+  // remove the replies which the clients already received
+  it = reply_window_[clt_nonce].begin();
+  while (it->xid <= xid_rep && it != reply_window_[clt_nonce].end())
+  {
+    it = reply_window_[clt_nonce].erase(it);
+  }
+
+  // handle duplication
+  for (it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); ++it)
+  { 
+    if((*it).xid < last_xidrep_[clt_nonce])
+      it = reply_window_[clt_nonce].erase(it);
+    if (it->xid == xid)
+    {
+      if (it->cb_present)
+      {
+        *b = it->buf;
+        *sz = it->sz;
+        return DONE;
+      }
+      else {
+        return INPROGRESS;
+      }
+    }
+  }
+
+  reply_t rep(xid);
+  rep.cb_present = false;
+  reply_window_[clt_nonce].push_back(rep);
+  return NEW;
 }
 
 // rpc handler

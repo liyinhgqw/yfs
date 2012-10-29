@@ -86,13 +86,11 @@ lock_server_cache::check_retry(lock_protocol::lockid_t lid)
     if (lock_pos_.find(lid) == lock_pos_.end()) {
       // send retry
       lock_pos_[lid] = id;
-printf("bazzinga %s %016llx\n",id.c_str(), lid);
       acquire_map_[lid].pop_front();
       handle h(id);
       pthread_mutex_unlock(&m_);
       h.safebind()->call(lock_protocol::retry, lid, r);
       pthread_mutex_lock(&m_);
-      printf("bzg: retry done %s %016llx!\n", id.c_str(), lid);
     }
   }
 
@@ -119,10 +117,8 @@ lock_server_cache::check_revoke(lock_protocol::lockid_t lid)
       // send revoke
       std::string revoke_id = lock_pos_[lid];
       handle h(revoke_id);
-      printf("<%s>\n", revoke_id.c_str());
       pthread_mutex_unlock(&m_);
       h.safebind()->call(lock_protocol::revoke, lid, r);
-      printf("SHOULD have called revoke %s %016llx\n", revoke_id.c_str(), lid); 
       pthread_mutex_lock(&m_);
     }
   }
