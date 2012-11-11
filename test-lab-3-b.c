@@ -119,6 +119,7 @@ checknot(const char *d, const char *f)
 void
 append1(const char *d, const char *f, const char *in)
 {
+  printf("append begins ... \n");
   int fd;
   char n[512];
 
@@ -141,6 +142,7 @@ append1(const char *d, const char *f, const char *in)
             n, strerror(errno));
     exit(1);
   }
+  printf("append ends ... \n");
 }
 
 // write n characters starting at offset start,

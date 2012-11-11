@@ -14,6 +14,7 @@ class extent_protocol {
     put = 0x6001,
     get,
     getattr,
+    setattr,
     remove
   };
 

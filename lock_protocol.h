@@ -8,13 +8,17 @@
 class lock_protocol {
  public:
   enum xxstatus { OK, RETRY, RPCERR, NOENT, IOERR };
+  enum cache_status { NONE, FREE, LOCKED, ACQUIRING, RELEASING,  REVOKING, OWNED, ASSIGNING };
   typedef int status;
+  typedef int ccstatus;
   typedef unsigned long long lockid_t;
   typedef unsigned long long xid_t;
   enum rpc_numbers {
     acquire = 0x7001,
     release,
-    stat
+    stat,
+    retry,
+    revoke
   };
 };
 
